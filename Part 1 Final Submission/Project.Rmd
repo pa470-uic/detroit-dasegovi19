@@ -1,1 +1,452 @@
+---
+title: "Project"
+author: "Daviid Segovia"
+date: "2/5/2022"
+output: html_document
+---
+
+---
+title: "Part 1"
+author: "David Segovia"
+output: 
+  html_document:
+    code_folding: hide
+    df_print: paged
+    theme: sandstone
+---
+
+
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+library(tidyverse)
+library(lubridate)
+```
+
+Template file. Code will be included in folded blocks in the output to facilitate grading. Please knit this file and commit both the rmd and the html output. If you add external files to your analysis, please commit them to the files folder in this repository. NOTE: please do not commit large (15MB+) files to GitHub. Instead please denote the origin of the files in your code. 
+
+```{r}
+library(readxl)
+detroitdata <- read_excel("OFFICE OF THE ASSESSORS_PROPERTY CLASSIFICATIONS -rev.xlsx")
+
+
+
+```
+
+
+You have been tasked with undertaking a multi-part analysis of homes in Detroit, Michigan. You are provided with a database to facilitate this analysis. This database was constructed from the Detroit Open Data portal and numerous FOIA requests. More information is included in the databases readme. Note that the database must be downloaded via the link provided in the readme.
+
+
+
+# Data Manipulation
+
+```{r}
+#example connection to database. note that you have to download the database from onedrive
+con <- DBI::dbConnect(RSQLite::SQLite(), "detroit.sqlite")
+
+# sales tbl
+dplyr::tbl(con, 'sales')
+
+# convert to tibble
+dplyr::tbl(con, 'sales') %>% dplyr::collect()
+
+## sql query
+dplyr::tbl(con, 'sales') %>% count(year(sale_date))
+
+#dplyr::tbl(con, 'sales') %>% count(year(sale_date)) %>% show_query()
+
+
+```
+
+
+
+```{r}
+#Create variables
+
+# blight
+blight <- dplyr::tbl(con, 'blight')  %>% dplyr::collect()
+
+# foreclosures
+foreclosures <- dplyr::tbl(con, 'foreclosures')  %>% dplyr::collect()
+
+# parcels
+parcels <- dplyr::tbl(con, 'parcels')  %>% dplyr::collect()
+
+# parcels historic
+parcels_historic <- dplyr::tbl(con, 'parcels_historic')  %>% dplyr::collect()
+
+```
+
+
+
+
+
+
+```{r}
+#Create variable for sales
+
+sales <- dplyr::tbl(con, 'sales') %>% dplyr::collect()
+
+#separate out data
+sales = sales %>% 
+  separate("sale_date", c("Year", "Month", "Day"), sep = "-")
+
+
+# merge property code with sales: 276,550 x 8
+
+sales = left_join(sales, detroitdata, by = c("property_c" = "CODE"))
+
+```
+
+
+
+```{r}
+#Merge assessments with sales based on year and parcel number
+
+# create assessments variable
+assessments <- dplyr::tbl(con, 'assessments') %>% dplyr::collect()
+
+assessments$year <- as.character(assessments$year) # make 'year' character
+
+sales_2 <- left_join(sales, assessments, by = c("parcel_num" = "PARCELNO", "Year" = "year"))
+
+```
+
+
+
+
+Using part_1.Rmd in the reports folder, edit that file to accomplish the following tasks:
+
+# Section A: Conduct an exploratory data analysis of homes in Detroit. Offer an overview of relevant trends in the data and data quality issues. Contextualize your analysis with key literature on properties in Detroit.
+
+```{r}
+
+sales_2 %>% count(Year) %>% ggplot(aes(x = Year, y=n, group=1))  + geom_line() + geom_point() 
+
+```
+
+
+Housing market took a big hit in 2020 because of the pandemic.
+
+
+```{r}
+
+sales_2 %>% group_by(Year) %>% summarize(mediantax = median(TAXABLEVALUE, na.rm=TRUE)) %>% 
+  
+  ggplot(aes(x = Year, y=mediantax, group=1)) +
+  geom_line() +geom_point()
+
+```
+
+Property taxes have dipped 
+
+
+```{r}
+sales_2 %>% group_by(Year) %>% summarize(medianassessed = median(ASSESSEDVALUE, na.rm=TRUE)) %>% 
+  
+  ggplot(aes(x = Year, y=medianassessed, group=1)) +
+  geom_line() +geom_point()
+
+
+
+```
+
+assessed value has also decreased over time
+
+```{r}
+
+sales_2 %>% group_by(Year) %>% summarize(medianprice = median(sale_price, na.rm=TRUE)) %>% 
+  
+  ggplot(aes(x = Year, y=medianprice, group=1)) +
+  geom_line() +geom_point()
+
+
+
+
+```
+But median sale price has fluctuated but it increased in 2020,  a significant increase from 2019
+
+
+
+
+
+```{r}
+sales_2 %>%
+  group_by(DESCRIPTION) %>%
+ summarize(medianprice = median(sale_price, na.rm = T))  %>%
+  mutate(DESCRIPTION = fct_reorder(DESCRIPTION, medianprice)) %>%
+  
+  arrange(desc(medianprice)) %>% ggplot(aes(x = DESCRIPTION, y = medianprice)) + geom_col() + coord_flip()
+
+
+
+
+```
+
+
+```{r}
+sales_2 %>%
+  group_by(DESCRIPTION) %>%
+  summarize(medianassed = median(ASSESSEDVALUE, na.rm = T)) %>%
+    mutate(DESCRIPTION = fct_reorder(DESCRIPTION, medianassed)) %>%
+  arrange(desc(medianassed)) %>% ggplot(aes(x = DESCRIPTION, y = medianassed)) + geom_col() + coord_flip()
+```
+
+
+
+```{r}
+sales_2 %>%
+  group_by(DESCRIPTION) %>%
+  summarize(mediantax = median(TAXABLEVALUE, na.rm = T)) %>%
+    mutate(DESCRIPTION = fct_reorder(DESCRIPTION, mediantax)) %>%
+  arrange(desc(mediantax)) %>% ggplot(aes(x = DESCRIPTION, y = mediantax)) + geom_col() + coord_flip()
+```
+
+*Measures of central tendency*
+
+```{r}
+# disable scientific notation
+options(scipen = 999)
+
+summary(sales_2$sale_price)
+
+# filter only the prices that = 0 and 1
+sales_2 %>% filter(sale_price == 0 | sale_price == 1) #89176
+
+#(89176/276550) * 100 = 32.24%
+
+
+
+```
+
+
+- Mean sale price = $22,924
+- Median Sale Price = $1,500
+- Minimum Sale Price of $0.00
+- Max Sale Price of $13,000,000 
+
+
+Histogram of sales price
+
+```{r}
+sales_2 %>% ggplot(aes(x = sale_price)) + geom_histogram(bins=20) + xlim(0,250000) + ylim(0,40000)  
+
+
+```
+
+
+*A few observations*
+
+- Residential Neighborhood Enterprize Zone (NEZ) Rehab properties have one of the highest median sales price but one of the lowest taxable value. They have received tax exemptions, according to this article: https://www.deadlinedetroit.com/articles/24556/detroit_could_double_down_on_tax_break_for_richest_residents
+
+- The histogram displays that prices are skewed to the right. Median would probably be better to use than mean
+
+- 32.24% of the data is made up of values where sale price is equal either 0 or 1
+
+- Median taxable value and the median assessed value have decreased from 2011 to 2020. Median sales price has fluctuated up and down but went up significantly from 2019 to 2020 while the number of housing sales decreased from 2019 to 2020 due to the pandemic. 
+
+
+
+
+
+
+
+
+# Section B: Use cmfproperty to conduct a sales ratio study across the relevant time period. Note that cmfproperty is designed to produce Rmarkdown reports but use the documentation and insert relevant graphs/figures into your report. Look to make this reproducible since you’ll need these methods to analyze your assessment model later on. Detroit has many sales which are not sold at fair market value so some sales should be excluded, but which ones?
+
+
+
+
+
+```{r}
+# sale ratios study: assessed value divided by sale price
+
+sales_2$Year <- as.double(sales_2$Year)
+
+library(devtools)
+
+
+salesratio <-
+  cmfproperty::reformat_data(
+    data = sales_2, 
+    sale_col = "sale_price",
+    assessment_col = "ASSESSEDVALUE",
+    sale_year_col = "Year",
+  )
+
+
+
+
+
+#head(as.data.frame(salesratio))
+
+
+
+
+
+
+
+#cmfproperty::make_report(salesratio,jurisdiction_name = "Detroit, Michigan")
+
+```
+
+
+
+
+```{r}
+
+salesratio %>% ggplot(aes(x = SALE_PRICE, y = RATIO, group = 1)) +  geom_line() + geom_point() 
+
+
+```
+
+ I will probably need to sort these into deciles later but it seems like sales ratios vary systemically, with least expensive homes having the highest assessment relative to the home price but expensive homes have cheaper assessment values, almost 0. 
+
+
+```{r}
+
+salesratio %>% group_by(SALE_YEAR) %>% summarize(
+  TotalArmLengthSales = sum(arms_length_transaction),
+  MedianSalePrice = median(SALE_PRICE),
+  MEDIANASSESSEDVALUE = median(ASSESSED_VALUE)
+)
+  
+  
+  
+  
+```
+Median Sale Price has gone up for the most part while assessed value has decreased  except from 2019-2020. 
+
+
+
+
+
+# Section C: Explore trends and relationships with property sales using simple regressions
+
+
+```{r}
+
+
+
+#salesratio
+lm2 = lm(SALE_PRICE ~ SALE_YEAR + DESCRIPTION + ASSESSED_VALUE + TAXABLEVALUE, data = salesratio)
+summary(lm2)
+broom::tidy(lm2)
+broom::glance(lm2)
+
+car::vif(lm2)
+
+
+
+
+```
+
+Regression interpretation: The year, residential type, assessment value, and taxable value are all significant predictor variables that predict sales price. Other variables that I will include is property size, # of bedrooms, etc. 
+
+
+
+
+
+# Section D: Explore trends and relationships with foreclosures using simple regressions
+
+1 = fore closure, NA = no(we will need to change this later to 0)
+
+
+
+
+```{r}
+
+# foreclosures #2002-2019
+
+
+sales_2 %>% count(Year) #2011-2020
+
+
+colSums(foreclosures[,3:20], na.rm=TRUE) # total number of foreclosures by year
+
+
+foreclosures$foreclosed <- rowSums(foreclosures[, 3:20], na.rm=TRUE) # add new column with total number of foreclosures
+
+
+table(foreclosures$foreclosed) # total number of foreclosures
+
+
+```
+
+
+
+```{r}
+#Merge foreclosures with sales data
+
+merged = left_join(salesratio, foreclosures, by = c("parcel_num" = "prop_parcelnum"))
+
+
+merged$foreclosed[is.na(merged$foreclosed)] <- 0 # replace NA with 0
+                   
+
+```
+
+
+
+```{r}
+#create if_else statement: either the property foreclosed or not
+
+merged$foreclosed_catg = if_else(
+  merged$foreclosed >=1 , 1, 0
+)
+
+
+
+```
+
+
+
+
+Regression
+1) I can run a linear regression estimating total number of foreclosures 
+2) OR Logistic regression: the property either foreclosed (1) or not(0). 
+
+Let's go with the first approach
+
+
+
+https://www.foxbusiness.com/politics/detroit-reveals-tentative-compensation-plan-overtaxed-foreclosed-homeowners
+
+This article explains that the city of Detroit overtaxed homeowners and assessed properties far more than 50% of its market value. Let's see what a simple regression gives us with sales ratio. 
+
+```{r}
+
+glm1 = glm(foreclosed_catg ~ RATIO + SALE_YEAR, data = merged, family = binomial)
+
+summary(glm1)
+broom::glance(glm1)
+broom::tidy(glm1)
+broom::augment(glm1)
+
+```
+
+
+
+This tells us that a one unit increase in the sales ratio (ASSESSED VALUE/PRICE) is associated with a 0.25 change in log odds of fore-closure.
+
+For every additional year, there is a 0.15 change in log odds of fore-closure. 
+
+This means that both the sales ratio and year are significant predictor variables that affect the likelihood of a property fore-closing. 
+
+
+
+```{r}
+
+merged %>% group_by(SALE_YEAR) %>% summarize(totalforeclosures = sum(foreclosed)) %>% 
+  
+  ggplot(aes(x = SALE_YEAR, y=totalforeclosures, group = 1)) +
+  geom_point() + geom_line()
+
+
+```
+Fore-closures went up and down, but it's strange seeing this number dip in 2020. 
+
 
